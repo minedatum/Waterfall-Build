@@ -18,6 +18,9 @@ import {
   WaterfallRow,
   WaterfallStepVersion,
   AuditLogEntry,
+  ProjectDetails,
+  WaterfallEntity,
+  ProjectEntity,
 } from './types';
 import {
   DEFAULT_DELIVERABLES,
@@ -31,6 +34,7 @@ import {
 } from './data/egrcWaterfallData';
 import { calculateWorkingDays } from './utils/workingDays';
 import { performAudit } from './utils/auditor';
+import { exportAnalystViewToExcel } from './utils/exportUtils';
 import { Header } from './components/Header';
 import { FRCWorkspace } from './components/FRCWorkspace';
 import { AnalystWorkspace } from './components/AnalystWorkspace';
@@ -42,6 +46,19 @@ import { DeliverableModal } from './components/DeliverableModal';
 import { ReportExportModal } from './components/ReportExportModal';
 import { RulesEditorModal } from './components/RulesEditorModal';
 import { ScaffoldModal } from './components/ScaffoldModal';
+import { RefreshDataModal } from './components/RefreshDataModal';
+import { AddWaterfallModal, CreateProjectModal } from './components/CreateWaterfallModals';
+import { IssueDetailsSetup } from './components/IssueDetailsSetup';
+
+export const BLANK_PROJECT_DETAILS: ProjectDetails = {
+  coeNumber: '',
+  egrcNumber: '',
+  issueTitle: '',
+  issueDescription: '',
+  frcName: '',
+  analystName: '',
+  waterfallName: '',
+};
 
 export default function App() {
   // Dual-Role State (persisted in localStorage)
@@ -59,22 +76,25 @@ export default function App() {
   const [analystTab, setAnalystTab] = useState<AnalystTab>(() => {
     try {
       const saved = localStorage.getItem('egrc_analyst_tab');
-      if (saved === 'table' || saved === 'start' || saved === 'complete' || saved === 'finalize' || saved === 'evolving') return saved as AnalystTab;
+      if (saved === 'table' || saved === 'start' || saved === 'complete' || saved === 'evolving') return saved as AnalystTab;
     } catch {
       // ignore
     }
     return 'table';
   });
 
-  // Waterfall Scoping Rows (starts clean with 0 steps for first-time use / leadership demonstration)
+  // Waterfall Scoping Rows (starts completely empty with 0 steps for fresh testing)
   const [waterfallRows, setWaterfallRows] = useState<WaterfallRow[]>(() => {
     try {
-      const cleanInit = localStorage.getItem('egrc_clean_slate_v2');
+      const cleanInit = localStorage.getItem('egrc_demo_blank_v2');
       if (!cleanInit) {
-        // Reset any past browser cache to guarantee clean slate for first-time use
+        // Reset any past browser cache to guarantee clean slate of 0 rows
         localStorage.removeItem('egrc_waterfall_rows');
         localStorage.removeItem('egrc_audit_logs');
-        localStorage.setItem('egrc_clean_slate_v2', 'true');
+        localStorage.removeItem('egrc_project_details');
+        localStorage.removeItem('egrc_waterfalls_list');
+        localStorage.removeItem('egrc_active_waterfall_id');
+        localStorage.setItem('egrc_demo_blank_v2', 'true');
         return [];
       }
       const saved = localStorage.getItem('egrc_waterfall_rows');
@@ -82,13 +102,13 @@ export default function App() {
     } catch {
       // ignore
     }
-    return INITIAL_WATERFALL_ROWS;
+    return [];
   });
 
-  // Consolidated Activity Audit Logs (starts clean for first-time use)
+  // Consolidated Activity Audit Logs (starts clean with 0 entries for fresh testing)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
     try {
-      const cleanInit = localStorage.getItem('egrc_clean_slate_v2');
+      const cleanInit = localStorage.getItem('egrc_demo_blank_v2');
       if (!cleanInit) {
         return [];
       }
@@ -97,17 +117,76 @@ export default function App() {
     } catch {
       // ignore
     }
-    return INITIAL_AUDIT_LOGS;
+    return [];
+  });
+
+  // Mandatory Project Governance Details (starts completely blank for live demo show)
+  const [projectDetails, setProjectDetails] = useState<ProjectDetails>(() => {
+    try {
+      const cleanInit = localStorage.getItem('egrc_demo_blank_v2');
+      if (!cleanInit) {
+        return BLANK_PROJECT_DETAILS;
+      }
+      const saved = localStorage.getItem('egrc_project_details');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          parsed.issueTitle === 'Card Lending Overlimit Interest Recalibration & Regulatory Reporting' ||
+          parsed.coeNumber === 'COE-2026-0891'
+        ) {
+          return BLANK_PROJECT_DETAILS;
+        }
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return BLANK_PROJECT_DETAILS;
   });
 
   // Secondary sub-view toggle: Show Deliverables File Gate Auditor
   const [showFileGatesAuditor, setShowFileGatesAuditor] = useState<boolean>(false);
+
+  // Multi-Waterfall & Project Management State (starts empty until issue details entered)
+  const [waterfalls, setWaterfalls] = useState<WaterfallEntity[]>(() => {
+    try {
+      const saved = localStorage.getItem('egrc_waterfalls_list');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.name !== 'Q3 Card Portfolio Remediation Waterfall') {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const [activeWaterfallId, setActiveWaterfallId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('egrc_active_waterfall_id');
+      if (saved && saved !== 'wf-default-1') return saved;
+    } catch {
+      // ignore
+    }
+    return '';
+  });
+
+  // Issue Details configuration check for live demo walkthrough
+  const isIssueDetailsConfigured = Boolean(
+    projectDetails.issueTitle?.trim() && projectDetails.coeNumber?.trim()
+  );
+
+  const [isAddWaterfallOpen, setIsAddWaterfallOpen] = useState<boolean>(false);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState<boolean>(false);
 
   // Drawer / Modals State
   const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showScaffoldModal, setShowScaffoldModal] = useState<boolean>(false);
+  const [showRefreshModal, setShowRefreshModal] = useState<boolean>(false);
 
   // Deliverables Auditor File State
   const [files, setFiles] = useState<ScannedFile[]>(SAMPLE_WATERFALL_FILES);
@@ -157,9 +236,42 @@ export default function App() {
     }
   }, [auditLogs]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('egrc_project_details', JSON.stringify(projectDetails));
+    } catch {
+      // ignore
+    }
+  }, [projectDetails]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('egrc_waterfalls_list', JSON.stringify(waterfalls));
+    } catch {
+      // ignore
+    }
+  }, [waterfalls]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('egrc_active_waterfall_id', activeWaterfallId);
+    } catch {
+      // ignore
+    }
+  }, [activeWaterfallId]);
+
   // Append new audit log helper
   const addAuditLog = useCallback(
-    (action: string, role: 'FRC Owner' | 'Analyst', user: string, details: string, rowId?: string) => {
+    (
+      action: string,
+      role: 'FRC Owner' | 'Analyst' | 'System',
+      user: string,
+      details: string,
+      rowId?: string,
+      eventType?: AuditLogEntry['eventType'],
+      disputeCategory?: AuditLogEntry['disputeCategory']
+    ) => {
+      const target = rowId ? waterfallRows.find((r) => r.id === rowId) : undefined;
       const newEntry: AuditLogEntry = {
         id: `LOG-${Date.now().toString().slice(-6)}`,
         timestamp: new Date().toISOString(),
@@ -167,11 +279,14 @@ export default function App() {
         role,
         action,
         rowId,
+        stepTitle: target?.stepTitle,
         details,
+        eventType: eventType || 'general',
+        disputeCategory,
       };
       setAuditLogs((prev) => [newEntry, ...prev]);
     },
-    []
+    [waterfallRows]
   );
 
   // Handle Role Change
@@ -285,6 +400,9 @@ export default function App() {
               ...r,
               status: 'step_finalized' as const,
               emailTriggeredAt: timestamp,
+              requirementFinalizedAt: r.requirementFinalizedAt || timestamp,
+              requirementLatestFinalizedAt: timestamp,
+              refinalizeCount: r.refinalizeCount ?? 0,
               lastEmailRecipients: emailDetails?.recipients,
               lastEmailSubject: emailDetails?.subject,
               lastEmailBody: emailDetails?.body,
@@ -300,7 +418,9 @@ export default function App() {
       `FRC finalized requirement for ${rowId}. Status moved to STEP FINALIZED. Stakeholder email alert dispatched to: ${
         emailDetails?.recipients.join(', ') || 'alex.morgan@enterprise.bank, marcus.vance.pmo@enterprise.bank'
       }.`,
-      rowId
+      rowId,
+      'requirement_finalized',
+      'signoff_milestone'
     );
   };
 
@@ -337,7 +457,9 @@ export default function App() {
       `FRC initiated modification for ${rowId}. Status moved to IN MODIFICATION. Alert email dispatched to: ${
         emailDetails?.recipients.join(', ') || 'alex.morgan@enterprise.bank, marcus.vance.pmo@enterprise.bank'
       }.`,
-      rowId
+      rowId,
+      'modification_started',
+      'scope_change'
     );
   };
 
@@ -354,6 +476,9 @@ export default function App() {
     }
   ) => {
     const timestamp = new Date().toISOString();
+    const targetRow = waterfallRows.find((r) => r.id === rowId);
+    const newRefinalizeCount = (targetRow?.refinalizeCount || 0) + 1;
+
     setWaterfallRows((prev) =>
       prev.map((row) => {
         if (row.id !== rowId) return row;
@@ -364,7 +489,7 @@ export default function App() {
           author: 'Sarah Jenkins',
           role: 'FRC Owner',
           rationale: updates.rationale || row.rationale,
-          changeSummary: changeSummary || 'FRC modified and submitted requirement.',
+          changeSummary: changeSummary || 'FRC modified and re-finalized requirement.',
           excludeCount: row.excludeCount,
           includeCaseCount: row.includeCaseCount,
           includeUniqueAccountCount: row.includeUniqueAccountCount,
@@ -379,6 +504,9 @@ export default function App() {
           status: 'step_finalized' as const,
           lastUpdated: timestamp,
           emailTriggeredAt: timestamp,
+          requirementFinalizedAt: row.requirementFinalizedAt || timestamp,
+          requirementLatestFinalizedAt: timestamp,
+          refinalizeCount: newRefinalizeCount,
           lastEmailRecipients: emailDetails?.recipients,
           lastEmailSubject: emailDetails?.subject,
           lastEmailBody: emailDetails?.body,
@@ -388,13 +516,15 @@ export default function App() {
     );
 
     addAuditLog(
-      'Modified Requirement Finalized & Submitted by FRC',
+      'Modified Requirement Re-Finalized by FRC',
       'FRC Owner',
       'Sarah Jenkins',
-      `FRC submitted modified requirement for ${rowId}. Version v${
-        (waterfallRows.find((r) => r.id === rowId)?.versions.length || 0) + 1
+      `FRC re-finalized requirement for ${rowId} (re-finalization #${newRefinalizeCount}). Version v${
+        (targetRow?.versions.length || 0) + 1
       } generated. Status updated to STEP FINALIZED. Stakeholder email alert dispatched.`,
-      rowId
+      rowId,
+      'requirement_refinalized',
+      'scope_change'
     );
   };
 
@@ -422,7 +552,33 @@ export default function App() {
       'FRC Owner',
       'Sarah Jenkins',
       `Formal FRC requirement finalisation completed for ${rowId}. Step locked for downstream reporting.`,
-      rowId
+      rowId,
+      'sign_off',
+      'signoff_milestone'
+    );
+  };
+
+  // FRC: Delete Step completely (no email triggered, transaction logged in audit trail)
+  const handleDeleteStep = (rowId: string) => {
+    const targetStep = waterfallRows.find((r) => r.id === rowId);
+    if (!targetStep) return;
+
+    setWaterfallRows((prev) => {
+      const remaining = prev.filter((r) => r.id !== rowId);
+      return remaining.map((row, idx) => ({
+        ...row,
+        stepNumber: idx + 1,
+      }));
+    });
+
+    addAuditLog(
+      `Waterfall Step Deleted (${rowId})`,
+      'FRC Owner',
+      'Sarah Jenkins',
+      `FRC Owner Sarah Jenkins completely deleted Waterfall Step ${rowId}: "${targetStep.stepTitle}". Category: ${targetStep.category}, Rule Reference: ${targetStep.ruleReference}. Deletion recorded in audit trail without outbound email dispatch.`,
+      rowId,
+      'general',
+      'scope_change'
     );
   };
 
@@ -439,9 +595,15 @@ export default function App() {
       businessRequirements?: string;
       datasetLocation?: string;
       notes?: string;
+      rerunCount?: number;
+      analyticsFirstFinalizedAt?: string;
+      analyticsLatestFinalizedAt?: string;
     },
     changeSummary?: string
   ) => {
+    const existing = waterfallRows.find((r) => r.id === rowId);
+    const isRerun = (updates.rerunCount ?? 0) > (existing?.rerunCount ?? 0);
+
     setWaterfallRows((prev) =>
       prev.map((row) => {
         if (row.id !== rowId) return row;
@@ -473,26 +635,46 @@ export default function App() {
     );
 
     addAuditLog(
-      'Waterfall step modified by Analyst',
+      isRerun ? `Analytics Re-run #${updates.rerunCount} by Analyst` : 'Waterfall step modified by Analyst',
       'Analyst',
       'Alex Morgan',
       changeSummary ||
         `Updated ${rowId}: Exclude=${updates.excludeCount.toLocaleString()}, Include=${updates.includeCaseCount.toLocaleString()}, Accounts=${updates.includeUniqueAccountCount.toLocaleString()} | Days: ${updates.workingDays}d`,
-      rowId
+      rowId,
+      isRerun ? 'analytics_rerun' : 'general',
+      isRerun ? 'analytical_rework' : undefined
     );
   };
 
   // Analyst: Status Change
   const handleAnalystStatusChange = (rowId: string, newStatus: WaterfallRow['status']) => {
+    const nowIso = new Date().toISOString();
     setWaterfallRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, status: newStatus } : r))
+      prev.map((r) =>
+        r.id === rowId
+          ? {
+              ...r,
+              status: newStatus,
+              analyticsFirstFinalizedAt:
+                newStatus === 'ready_for_review' || newStatus === 'signed_off'
+                  ? r.analyticsFirstFinalizedAt || nowIso
+                  : r.analyticsFirstFinalizedAt,
+              analyticsLatestFinalizedAt:
+                newStatus === 'ready_for_review' || newStatus === 'signed_off'
+                  ? nowIso
+                  : r.analyticsLatestFinalizedAt,
+            }
+          : r
+      )
     );
     addAuditLog(
       `Status changed to ${newStatus.replace(/_/g, ' ')}`,
       'Analyst',
       'Alex Morgan',
       `Analyst moved ${rowId} to status: ${newStatus.toUpperCase()}`,
-      rowId
+      rowId,
+      newStatus === 'ready_for_review' ? 'analytics_finalized' : 'general',
+      newStatus === 'ready_for_review' ? 'signoff_milestone' : undefined
     );
   };
 
@@ -507,6 +689,15 @@ export default function App() {
     }
   ) => {
     const timestamp = new Date().toISOString();
+    const existing = waterfallRows.find((r) => r.id === rowId);
+    const isRerun = Boolean(
+      existing?.analyticsCompletedAt ||
+      existing?.status === 'in_analysis' ||
+      existing?.status === 'ready_for_review' ||
+      (existing?.rerunCount && existing.rerunCount > 0)
+    );
+    const newRerunCount = isRerun ? (existing?.rerunCount || 0) + 1 : (existing?.rerunCount || 0);
+
     setWaterfallRows((prev) =>
       prev.map((r) =>
         r.id === rowId
@@ -514,6 +705,7 @@ export default function App() {
               ...r,
               analyticsCompletedAt: timestamp,
               emailTriggeredAt: timestamp,
+              rerunCount: newRerunCount,
               lastEmailRecipients: emailDetails.recipients,
             }
           : r
@@ -521,40 +713,138 @@ export default function App() {
     );
 
     addAuditLog(
-      'Email Notification Triggered to Project Team',
+      isRerun
+        ? `Analytics Re-run #${newRerunCount} Dispatched (${rowId})`
+        : `Email Notification Triggered to Project Team (${rowId})`,
       'Analyst',
       'Alex Morgan',
       `Analytics alert triggered for ${rowId}. Notification dispatched to Project Team: ${emailDetails.recipients.join(', ')}. Subject: "${emailDetails.subject}"`,
-      rowId
+      rowId,
+      isRerun ? 'analytics_rerun' : 'analytics_started',
+      'analytical_rework'
+    );
+  };
+
+  // Handle "Refresh Data" across all analytical steps and trigger enterprise email notification
+  const handleConfirmRefreshData = (emailPayload: {
+    recipients: string[];
+    subject: string;
+    body: string;
+    customNote: string;
+  }) => {
+    const timestamp = new Date().toISOString();
+
+    // Update all rows: mark refreshed, update timestamp, and record rerun count
+    setWaterfallRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        analyticsCompletedAt: timestamp,
+        emailTriggeredAt: timestamp,
+        rerunCount: (r.rerunCount || 0) + 1,
+        lastEmailRecipients: emailPayload.recipients,
+        lastEmailSubject: emailPayload.subject,
+        lastEmailBody: emailPayload.body,
+        notes: emailPayload.customNote
+          ? `${r.notes ? r.notes + '\n' : ''}[Data Refreshed: ${emailPayload.customNote}]`
+          : r.notes,
+      }))
+    );
+
+    addAuditLog(
+      'Full Analytical Data Refresh Dispatched',
+      userRole === 'frc' ? 'FRC Governance' : 'Analyst',
+      userRole === 'frc' ? 'FRC Governance Team' : 'Lead Analyst Team',
+      `Enterprise-wide Data Refresh triggered across all ${waterfallRows.length} analytical steps. Notification email dispatched to: ${emailPayload.recipients.join(', ')}.`,
+      'all',
+      'analytics_rerun',
+      'analytical_rework'
     );
   };
 
   // Reset entire workspace back to clean slate for first-time use / leadership demonstration
   const handleResetToCleanSlate = () => {
+    setProjectDetails(BLANK_PROJECT_DETAILS);
     setWaterfallRows([]);
     setAuditLogs([]);
+    setWaterfalls([]);
+    setActiveWaterfallId('');
     try {
-      localStorage.setItem('egrc_waterfall_rows', JSON.stringify([]));
-      localStorage.setItem('egrc_audit_logs', JSON.stringify([]));
-      localStorage.setItem('egrc_clean_slate_v2', 'true');
+      localStorage.removeItem('egrc_project_details');
+      localStorage.removeItem('egrc_waterfall_rows');
+      localStorage.removeItem('egrc_audit_logs');
+      localStorage.removeItem('egrc_waterfalls_list');
+      localStorage.removeItem('egrc_active_waterfall_id');
+      localStorage.setItem('egrc_demo_blank_v2', 'true');
     } catch {
       // ignore
     }
+  };
+
+  // Initialize Issue Details from Setup Form
+  const handleInitializeProjectDetails = (details: ProjectDetails) => {
+    setProjectDetails(details);
+    const newWfId = `wf-${Date.now().toString().slice(-6)}`;
+    const newWf: WaterfallEntity = {
+      id: newWfId,
+      name: details.waterfallName || 'Initial Waterfall',
+      createdAt: new Date().toISOString(),
+      rows: [],
+      auditLogs: [],
+    };
+    setWaterfalls([newWf]);
+    setActiveWaterfallId(newWfId);
+    setWaterfallRows([]);
+
+    try {
+      localStorage.setItem('egrc_project_details', JSON.stringify(details));
+      localStorage.setItem('egrc_waterfalls_list', JSON.stringify([newWf]));
+      localStorage.setItem('egrc_active_waterfall_id', newWfId);
+      localStorage.setItem('egrc_waterfall_rows', JSON.stringify([]));
+    } catch {
+      // ignore
+    }
+
     addAuditLog(
-      'Workspace Reset to Clean Slate',
-      userRole === 'frc' ? 'FRC Owner' : 'Analyst',
-      userRole === 'frc' ? 'Sarah Jenkins' : 'Alex Morgan',
-      'All waterfall steps and progress cleared for first-time leadership demonstration.'
+      `Issue Details Initialized: ${details.issueTitle}`,
+      userRole === 'frc' ? 'FRC Owner' : 'Lead Analyst',
+      userRole === 'frc' ? (details.frcName || 'Sarah Jenkins') : (details.analystName || 'Alex Morgan'),
+      `Initialized issue governance specification for "${details.issueTitle}" (COE# ${details.coeNumber}, eGRC# ${details.egrcNumber}). Waterfall workspace "${details.waterfallName}" configured with a blank slate.`,
+      undefined,
+      'draft_saved',
+      'baseline_alignment'
     );
   };
 
   // Optional: Load sample dataset during leadership demo
   const handleLoadSampleDemo = () => {
+    const sampleDetails: ProjectDetails = {
+      coeNumber: 'COE-2026-0891',
+      egrcNumber: 'eGRC-REQ-4421',
+      issueTitle: 'Card Lending Overlimit Interest Recalibration & Regulatory Reporting',
+      issueDescription: 'Remediation and historical recalculation of account balances and regulatory reporting discrepancies across overlimit consumer credit portfolios.',
+      frcName: 'Sarah Jenkins',
+      analystName: 'Alex Morgan',
+      waterfallName: 'Q3 Card Portfolio Remediation Waterfall',
+    };
+    setProjectDetails(sampleDetails);
     setWaterfallRows(DEMO_WATERFALL_ROWS);
     setAuditLogs(DEMO_AUDIT_LOGS);
+    const demoWfId = 'wf-demo-1';
+    const demoWf: WaterfallEntity = {
+      id: demoWfId,
+      name: sampleDetails.waterfallName,
+      createdAt: new Date().toISOString(),
+      rows: DEMO_WATERFALL_ROWS,
+      auditLogs: DEMO_AUDIT_LOGS,
+    };
+    setWaterfalls([demoWf]);
+    setActiveWaterfallId(demoWfId);
     try {
+      localStorage.setItem('egrc_project_details', JSON.stringify(sampleDetails));
       localStorage.setItem('egrc_waterfall_rows', JSON.stringify(DEMO_WATERFALL_ROWS));
       localStorage.setItem('egrc_audit_logs', JSON.stringify(DEMO_AUDIT_LOGS));
+      localStorage.setItem('egrc_waterfalls_list', JSON.stringify([demoWf]));
+      localStorage.setItem('egrc_active_waterfall_id', demoWfId);
     } catch {
       // ignore
     }
@@ -562,7 +852,149 @@ export default function App() {
       'Sample Demo Dataset Loaded',
       userRole === 'frc' ? 'FRC Owner' : 'Analyst',
       userRole === 'frc' ? 'Sarah Jenkins' : 'Alex Morgan',
-      'Loaded 6 demonstration waterfall steps and historical analytics.'
+      'Sample banking portfolio issue details and waterfall steps populated for demonstration.'
+    );
+  };
+
+  // Save / Update Project Details & Issue Details
+  const handleSaveProjectDetails = (updated: ProjectDetails) => {
+    const prev = projectDetails;
+    setProjectDetails(updated);
+    // Also update active waterfall's name in waterfalls array
+    setWaterfalls((prev) =>
+      prev.map((wf) => (wf.id === activeWaterfallId ? { ...wf, name: updated.waterfallName } : wf))
+    );
+
+    // Track specific differences for audit log capture
+    const changes: string[] = [];
+    if (prev.issueTitle !== updated.issueTitle) {
+      changes.push(`Issue Title: "${updated.issueTitle}"`);
+    }
+    if ((prev.issueDescription || '') !== (updated.issueDescription || '')) {
+      changes.push(`Issue Description updated`);
+    }
+    if (prev.coeNumber !== updated.coeNumber) {
+      changes.push(`COE#: "${updated.coeNumber}"`);
+    }
+    if (prev.egrcNumber !== updated.egrcNumber) {
+      changes.push(`eGRC#: "${updated.egrcNumber}"`);
+    }
+    if (prev.frcName !== updated.frcName) {
+      changes.push(`FRC Name: "${updated.frcName}"`);
+    }
+    if (prev.analystName !== updated.analystName) {
+      changes.push(`Analyst Name: "${updated.analystName}"`);
+    }
+    if (prev.waterfallName !== updated.waterfallName) {
+      changes.push(`Waterfall Name: "${updated.waterfallName}"`);
+    }
+
+    const logRole = userRole === 'frc' ? 'FRC Owner' : 'Lead Analyst';
+    const logUser = userRole === 'frc' ? (updated.frcName || 'Sarah Jenkins') : (updated.analystName || 'Alex Morgan');
+    const logSummary = changes.length > 0
+      ? `Issue Details modified: ${changes.join('; ')}`
+      : `Issue Details reviewed and saved for ${updated.issueTitle || updated.coeNumber}.`;
+
+    addAuditLog(
+      'Issue Details Updated',
+      logRole,
+      logUser,
+      logSummary,
+      undefined,
+      'draft_saved',
+      'scope_change'
+    );
+  };
+
+  // Switch Active Waterfall
+  const handleSelectWaterfall = (waterfallId: string) => {
+    // 1. Save current active waterfall rows
+    setWaterfalls((prev) =>
+      prev.map((wf) => (wf.id === activeWaterfallId ? { ...wf, rows: waterfallRows } : wf))
+    );
+
+    // 2. Load the target waterfall
+    const targetWf = waterfalls.find((w) => w.id === waterfallId);
+    if (targetWf) {
+      setActiveWaterfallId(targetWf.id);
+      setWaterfallRows(targetWf.rows || []);
+      setProjectDetails((prev) => ({
+        ...prev,
+        waterfallName: targetWf.name,
+      }));
+      addAuditLog(
+        `Switched Active Waterfall to: ${targetWf.name}`,
+        userRole === 'frc' ? 'FRC Owner' : 'Analyst',
+        userRole === 'frc' ? 'Sarah Jenkins' : 'Alex Morgan',
+        `Switched workspace view to waterfall "${targetWf.name}" with ${targetWf.rows?.length || 0} rows.`
+      );
+    }
+  };
+
+  // Option 1: Add New Waterfall (Inherits existing project governance details)
+  const handleAddWaterfall = (waterfallName: string) => {
+    // Save current active rows first
+    const updatedWaterfalls = waterfalls.map((wf) =>
+      wf.id === activeWaterfallId ? { ...wf, rows: waterfallRows } : wf
+    );
+
+    const newWaterfallId = `wf-${Date.now().toString().slice(-6)}`;
+    const newWf: WaterfallEntity = {
+      id: newWaterfallId,
+      name: waterfallName,
+      createdAt: new Date().toISOString(),
+      rows: [],
+      auditLogs: [],
+    };
+
+    setWaterfalls([...updatedWaterfalls, newWf]);
+    setActiveWaterfallId(newWaterfallId);
+    setWaterfallRows([]);
+    setProjectDetails((prev) => ({
+      ...prev,
+      waterfallName,
+    }));
+
+    addAuditLog(
+      `New Waterfall Added: ${waterfallName}`,
+      userRole === 'frc' ? 'FRC Owner' : 'Analyst',
+      userRole === 'frc' ? 'Sarah Jenkins' : 'Alex Morgan',
+      `Created additional waterfall "${waterfallName}" under project "${projectDetails.issueTitle}" (COE# ${projectDetails.coeNumber}). All project governance details inherited.`
+    );
+  };
+
+  // Option 2: Create Brand New Project (Fresh COE#, eGRC#, Title, leads, and initial waterfall)
+  const handleCreateNewProject = (newProject: ProjectDetails) => {
+    const newWaterfallId = `wf-${Date.now().toString().slice(-6)}`;
+    const newWf: WaterfallEntity = {
+      id: newWaterfallId,
+      name: newProject.waterfallName,
+      createdAt: new Date().toISOString(),
+      rows: [],
+      auditLogs: [],
+    };
+
+    setProjectDetails(newProject);
+    setWaterfalls([newWf]);
+    setActiveWaterfallId(newWaterfallId);
+    setWaterfallRows([]);
+    setAuditLogs([]);
+
+    try {
+      localStorage.setItem('egrc_project_details', JSON.stringify(newProject));
+      localStorage.setItem('egrc_waterfalls_list', JSON.stringify([newWf]));
+      localStorage.setItem('egrc_active_waterfall_id', newWaterfallId);
+      localStorage.setItem('egrc_waterfall_rows', JSON.stringify([]));
+      localStorage.setItem('egrc_audit_logs', JSON.stringify([]));
+    } catch {
+      // ignore
+    }
+
+    addAuditLog(
+      `Brand New Project Created: ${newProject.issueTitle}`,
+      'FRC Owner',
+      newProject.frcName || 'FRC Owner',
+      `Initialized fresh project specification: COE# "${newProject.coeNumber}", eGRC# "${newProject.egrcNumber}", Waterfall: "${newProject.waterfallName}".`
     );
   };
 
@@ -737,76 +1169,125 @@ export default function App() {
         onResetToCleanSlate={handleResetToCleanSlate}
         onLoadSampleDemo={handleLoadSampleDemo}
         waterfallRowsCount={waterfallRows.length}
+        onRefreshData={() => setShowRefreshModal(true)}
+        onExportExcel={() => {
+          // Sync active waterfall rows in current waterfalls list before exporting
+          const currentWaterfalls = waterfalls.map((wf) =>
+            wf.id === activeWaterfallId ? { ...wf, rows: waterfallRows } : wf
+          );
+          exportAnalystViewToExcel(
+            waterfallRows,
+            undefined,
+            'Waterfall_Analyst_Requirements.xlsx',
+            projectDetails,
+            currentWaterfalls
+          );
+        }}
+        onOpenAddWaterfall={() => setIsAddWaterfallOpen(true)}
+        onOpenCreateProject={() => setIsCreateProjectOpen(true)}
+        waterfalls={waterfalls}
+        activeWaterfallId={activeWaterfallId}
+        onSelectWaterfall={handleSelectWaterfall}
+        isConfigured={isIssueDetailsConfigured}
       />
 
       {/* Main Workspace Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* PRIMARY VIEW RENDERING BASED ON ROLE */}
-        {userRole === 'frc' ? (
-          <FRCWorkspace
-            rows={waterfallRows}
-            onAddRow={handleAddStep}
-            onUpdateRow={handleUpdateRow}
-            onSubmitToAnalyst={handleSubmitToAnalyst}
-            onSignOffRow={handleSignOffRow}
-            onFinalizeRequirement={handleFinalizeRequirement}
-            onStartModification={handleStartModification}
-            onSubmitModifiedRequirement={handleSubmitModifiedRequirement}
-            onTriggerEmailNotification={handleTriggerEmailNotification}
+        {!isIssueDetailsConfigured ? (
+          <IssueDetailsSetup
+            onSubmit={handleInitializeProjectDetails}
           />
         ) : (
-          <AnalystWorkspace
-            rows={waterfallRows}
-            activeTab={analystTab}
-            onTabChange={setAnalystTab}
-            onUpdateCountsAndSchedule={handleUpdateCountsAndSchedule}
-            onStatusChange={handleAnalystStatusChange}
-            onTriggerEmailNotification={handleTriggerEmailNotification}
-          />
-        )}
+          <>
+            {/* PRIMARY VIEW RENDERING BASED ON ROLE */}
+            {userRole === 'frc' ? (
+              <FRCWorkspace
+                rows={waterfallRows}
+                auditLogs={auditLogs}
+                projectDetails={projectDetails}
+                waterfalls={waterfalls}
+                activeWaterfallId={activeWaterfallId}
+                onSelectWaterfall={handleSelectWaterfall}
+                onOpenAddWaterfall={() => setIsAddWaterfallOpen(true)}
+                onOpenCreateProject={() => setIsCreateProjectOpen(true)}
+                onOpenAuditLogs={() => setIsAuditLogOpen(true)}
+                onResetToCleanSlate={handleResetToCleanSlate}
+                onSaveProjectDetails={handleSaveProjectDetails}
+                onAddRow={handleAddStep}
+                onUpdateRow={handleUpdateRow}
+                onSubmitToAnalyst={handleSubmitToAnalyst}
+                onSignOffRow={handleSignOffRow}
+                onFinalizeRequirement={handleFinalizeRequirement}
+                onStartModification={handleStartModification}
+                onSubmitModifiedRequirement={handleSubmitModifiedRequirement}
+                onTriggerEmailNotification={handleTriggerEmailNotification}
+                onDeleteRow={handleDeleteStep}
+              />
+            ) : (
+              <AnalystWorkspace
+                rows={waterfallRows}
+                auditLogs={auditLogs}
+                projectDetails={projectDetails}
+                waterfalls={waterfalls}
+                activeWaterfallId={activeWaterfallId}
+                onSelectWaterfall={handleSelectWaterfall}
+                onOpenAddWaterfall={() => setIsAddWaterfallOpen(true)}
+                onOpenCreateProject={() => setIsCreateProjectOpen(true)}
+                onOpenAuditLogs={() => setIsAuditLogOpen(true)}
+                onResetToCleanSlate={handleResetToCleanSlate}
+                onSaveProjectDetails={handleSaveProjectDetails}
+                activeTab={analystTab}
+                onTabChange={setAnalystTab}
+                onUpdateCountsAndSchedule={handleUpdateCountsAndSchedule}
+                onStatusChange={handleAnalystStatusChange}
+                onTriggerEmailNotification={handleTriggerEmailNotification}
+              />
+            )}
 
-        {/* SECONDARY VIEW: DELIVERABLES & FILE GATE AUDITOR (Collapsible or Expandable) */}
-        {showFileGatesAuditor && (
-          <div className="border-t-2 border-stone-300 pt-6 space-y-6 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-stone-700" />
-                  Waterfall Deliverables &amp; Phase Gates Auditor
-                </h3>
-                <p className="text-xs text-stone-500">
-                  Inspect underlying physical BRD, SRS, code freezes, UAT test logs, and release runbooks in{' '}
-                  <code className="font-mono text-stone-800">{targetPath}</code>
-                </p>
+            {/* SECONDARY VIEW: DELIVERABLES & FILE GATE AUDITOR (Collapsible or Expandable) */}
+            {showFileGatesAuditor && (
+              <div className="border-t-2 border-stone-300 pt-6 space-y-6 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-stone-700" />
+                      Waterfall Deliverables &amp; Phase Gates Auditor
+                    </h3>
+                    <p className="text-xs text-stone-500">
+                      Inspect underlying physical BRD, SRS, code freezes, UAT test logs, and release runbooks in{' '}
+                      <code className="font-mono text-stone-800">{targetPath}</code>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Executive Summary Cards */}
+                <ExecutiveSummary
+                  report={report}
+                  onFilterStatus={(st) => setStatusFilter(st)}
+                  onOpenScaffold={() => setShowScaffoldModal(true)}
+                  targetPath={targetPath}
+                />
+
+                {/* Sequential Phase Gates Pipeline */}
+                <PhasePipeline
+                  phases={report.phases}
+                  selectedPhase={selectedPhase}
+                  onSelectPhase={(phase) => setSelectedPhase(phase)}
+                />
+
+                {/* Detailed Deliverables Audit Table */}
+                <DeliverablesTable
+                  results={report.results}
+                  unmatchedFiles={report.unmatchedFiles}
+                  activePhase={selectedPhase}
+                  activeStatusFilter={statusFilter}
+                  onStatusFilterChange={(st) => setStatusFilter(st)}
+                  onSelectDeliverable={(item) => setInspectedItem(item)}
+                  onSelectUnmatchedFile={handleSelectUnmatchedFile}
+                />
               </div>
-            </div>
-
-            {/* Executive Summary Cards */}
-            <ExecutiveSummary
-              report={report}
-              onFilterStatus={(st) => setStatusFilter(st)}
-              onOpenScaffold={() => setShowScaffoldModal(true)}
-              targetPath={targetPath}
-            />
-
-            {/* Sequential Phase Gates Pipeline */}
-            <PhasePipeline
-              phases={report.phases}
-              selectedPhase={selectedPhase}
-              onSelectPhase={(phase) => setSelectedPhase(phase)}
-            />
-
-            {/* Detailed Deliverables Audit Table */}
-            <DeliverablesTable
-              results={report.results}
-              unmatchedFiles={report.unmatchedFiles}
-              activePhase={selectedPhase}
-              activeStatusFilter={statusFilter}
-              onStatusFilterChange={(st) => setStatusFilter(st)}
-              onSelectDeliverable={(item) => setInspectedItem(item)}
-              onSelectUnmatchedFile={handleSelectUnmatchedFile}
-            />
-          </div>
+            )}
+          </>
         )}
       </main>
 
@@ -826,7 +1307,15 @@ export default function App() {
             <span>•</span>
             <span className="flex items-center gap-1 text-stone-600">
               <FolderOpen className="w-3.5 h-3.5 text-stone-400" />
-              Role: <strong className="uppercase font-bold">{userRole}</strong>
+              {isIssueDetailsConfigured ? (
+                <>
+                  Role: <strong className="uppercase font-bold">{userRole}</strong>
+                </>
+              ) : (
+                <span>
+                  Status: <strong className="font-semibold text-stone-700">Setup &amp; Intake</strong>
+                </span>
+              )}
             </span>
           </div>
         </div>
@@ -876,6 +1365,29 @@ export default function App() {
           onDirectoryScaffoldSuccess={(paths) => handleDirectoryScaffoldSuccess(paths)}
         />
       )}
+
+      {/* Refresh All Analytical Steps Email Dispatch Modal */}
+      <RefreshDataModal
+        rows={waterfallRows}
+        isOpen={showRefreshModal}
+        onClose={() => setShowRefreshModal(false)}
+        onConfirmRefresh={handleConfirmRefreshData}
+      />
+
+      {/* Option 1: Add Waterfall Modal (only prompts for Waterfall Name) */}
+      <AddWaterfallModal
+        isOpen={isAddWaterfallOpen}
+        onClose={() => setIsAddWaterfallOpen(false)}
+        currentProject={projectDetails}
+        onAddWaterfall={handleAddWaterfall}
+      />
+
+      {/* Option 2: Create Brand New Project Modal (prompts for full project spec + waterfall) */}
+      <CreateProjectModal
+        isOpen={isCreateProjectOpen}
+        onClose={() => setIsCreateProjectOpen(false)}
+        onCreateProject={handleCreateNewProject}
+      />
     </div>
   );
 }

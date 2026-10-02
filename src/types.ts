@@ -78,7 +78,7 @@ export interface ProjectAuditReport {
 // eGRC Dual-Persona & Waterfall Row Types
 export type UserRole = 'frc' | 'analyst';
 
-export type AnalystTab = 'table' | 'start' | 'complete' | 'finalize' | 'evolving';
+export type AnalystTab = 'table' | 'start' | 'complete' | 'finalize' | 'evolving' | 'dispute_logs';
 
 export type WaterfallRowStatus =
   | 'draft'
@@ -140,6 +140,13 @@ export interface WaterfallRow {
   lastEmailRecipients?: string[];
   lastEmailSubject?: string;
   lastEmailBody?: string;
+  // Timeline Journey & Dispute Resolution fields
+  rerunCount?: number;
+  refinalizeCount?: number;
+  requirementFinalizedAt?: string;
+  requirementLatestFinalizedAt?: string;
+  analyticsFirstFinalizedAt?: string;
+  analyticsLatestFinalizedAt?: string;
 }
 
 export interface AuditLogEntry {
@@ -149,6 +156,45 @@ export interface AuditLogEntry {
   role: 'FRC Owner' | 'Analyst' | 'System';
   action: string;
   rowId?: string;
+  stepTitle?: string;
   details: string;
+  eventType?:
+    | 'requirement_finalized'
+    | 'requirement_refinalized'
+    | 'analytics_started'
+    | 'analytics_rerun'
+    | 'analytics_finalized'
+    | 'modification_started'
+    | 'draft_saved'
+    | 'sign_off'
+    | 'general';
+  disputeCategory?: 'scope_change' | 'analytical_rework' | 'signoff_milestone' | 'baseline_alignment';
+}
+
+export interface ProjectDetails {
+  coeNumber: string;
+  egrcNumber: string;
+  issueTitle: string;
+  issueDescription?: string;
+  frcName: string;
+  analystName: string;
+  waterfallName: string;
+}
+
+export interface WaterfallEntity {
+  id: string;
+  projectId?: string;
+  name: string;
+  createdAt: string;
+  rows: WaterfallRow[];
+  auditLogs?: AuditLogEntry[];
+}
+
+export interface ProjectEntity {
+  id: string;
+  projectDetails: ProjectDetails;
+  waterfalls: WaterfallEntity[];
+  activeWaterfallId: string;
+  createdAt: string;
 }
 

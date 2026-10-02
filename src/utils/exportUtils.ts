@@ -1,4 +1,5 @@
-import { WaterfallRow, AuditLogEntry } from '../types';
+import * as XLSX from 'xlsx';
+import { WaterfallRow, AuditLogEntry, ProjectDetails, WaterfallEntity } from '../types';
 import { formatDateDisplay, formatDateTimeDisplay } from './workingDays';
 
 // Trigger browser download of a file
@@ -12,6 +13,48 @@ function downloadFile(content: string, fileName: string, mimeType: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// Trigger browser download of binary buffer (.xlsx)
+function downloadBinaryFile(buffer: Uint8Array, fileName: string) {
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Sanitize sheet name for Excel rules (max 31 chars, no invalid chars, unique)
+function getSanitizedSheetName(rawName: string, existingNames: Set<string>, fallback = 'Waterfall'): string {
+  let cleaned = rawName
+    .replace(/[\\/*?:[\]]/g, '_')
+    .trim();
+  if (!cleaned) {
+    cleaned = fallback;
+  }
+  let truncated = cleaned.slice(0, 31);
+  if (!existingNames.has(truncated.toLowerCase())) {
+    existingNames.add(truncated.toLowerCase());
+    return truncated;
+  }
+  // If duplicate, append numeric suffix (e.g., WF (2))
+  let counter = 2;
+  while (true) {
+    const suffix = ` (${counter})`;
+    const maxPrefixLen = 31 - suffix.length;
+    const candidate = `${cleaned.slice(0, maxPrefixLen)}${suffix}`;
+    if (!existingNames.has(candidate.toLowerCase())) {
+      existingNames.add(candidate.toLowerCase());
+      return candidate;
+    }
+    counter++;
+  }
 }
 
 // Convert data to CSV format
@@ -58,83 +101,236 @@ export function exportWaterfallToCsv(rows: WaterfallRow[], fileName = 'Waterfall
   downloadFile(csvContent, fileName, 'text/csv;charset=utf-8;');
 }
 
-// Export formatted Excel table (.xls)
-export function exportWaterfallToExcel(rows: WaterfallRow[], fileName = 'Waterfall_Rows.xls') {
-  const tableRows = rows
-    .map(
-      (r) => `
-    <tr>
-      <td style="font-family:monospace; font-weight:bold; text-align:center;">${r.id}</td>
-      <td>${escapeHtml(r.rationale)}</td>
-      <td>${escapeHtml(r.businessRequirements || '')}</td>
-      <td style="font-family:monospace; font-size:10pt;">${escapeHtml(r.datasetLocation || '')}</td>
-      <td style="text-align:right; font-weight:bold; color:#be123c;">${r.excludeCount.toLocaleString()}</td>
-      <td style="text-align:right; font-weight:bold; color:#047857;">${r.includeCaseCount.toLocaleString()}</td>
-      <td style="text-align:right; font-weight:bold;">${r.includeUniqueAccountCount.toLocaleString()}</td>
-      <td>${escapeHtml(r.notes || '')}</td>
-      <td style="text-align:center; font-weight:bold; color:#1d4ed8;">${r.workingDays}</td>
-      <td style="text-align:center; background-color:${getStatusColor(r.status)};">${r.status.toUpperCase()}</td>
-      <td style="font-family:monospace;">${r.ruleReference}</td>
-    </tr>`
-    )
-    .join('');
+// Helper to build a worksheet for a waterfall in standard FRC / Table format
+function buildWaterfallWorksheet(
+  wfName: string,
+  rows: WaterfallRow[],
+  projectDetails?: ProjectDetails
+): XLSX.WorkSheet {
+  const sheetAoa: (string | number)[][] = [
+    ['eGRC WATERFALL REQUIREMENTS & SCOPING TABLE'],
+    [],
+    ['COE#', projectDetails?.coeNumber || '—'],
+    ['eGRC#', projectDetails?.egrcNumber || '—'],
+    ['Issue Title', projectDetails?.issueTitle || '—'],
+    ['Issue Description', projectDetails?.issueDescription || '—'],
+    ['FRC Name', projectDetails?.frcName || '—'],
+    ['Analyst Name', projectDetails?.analystName || '—'],
+    ['Waterfall Name', wfName || '—'],
+    [],
+    [
+      'Step #',
+      'WFID#',
+      'Title',
+      'Category',
+      'Rule Reference',
+      'Status',
+      'Step Rationale',
+      'Business Requirements',
+      'Dataset Location',
+      'Exclude Count',
+      'Include Cases',
+      'Unique Accounts',
+      'Start Date',
+      'End Date',
+      'Working Days',
+      'Assigned Analyst',
+      'FRC Owner',
+      'Notes',
+    ],
+  ];
 
-  const excelXml = `
-  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <!--[if gte mso 9]>
-    <xml>
-      <x:ExcelWorkbook>
-        <x:ExcelWorksheets>
-          <x:ExcelWorksheet>
-            <x:Name>eGRC Waterfall Steps</x:Name>
-            <x:WorksheetOptions>
-              <x:DisplayGridlines/>
-            </x:WorksheetOptions>
-          </x:ExcelWorksheet>
-        </x:ExcelWorksheets>
-      </x:ExcelWorkbook>
-    </xml>
-    <![endif]-->
-    <style>
-      body { font-family: Calibri, Arial, sans-serif; }
-      th { background-color: #1e293b; color: #ffffff; padding: 8px; border: 1px solid #cbd5e1; }
-      td { padding: 6px; border: 1px solid #e2e8f0; font-size: 11pt; }
-    </style>
-  </head>
-  <body>
-    <h2>eGRC Requirements Waterfall - Population Scoping & Analytics</h2>
-    <p>Export Date: ${new Date().toLocaleString()} | Target Drive: H:\\My Drive\\Waterfall</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Step</th>
-          <th>ID</th>
-          <th>Title</th>
-          <th>Category</th>
-          <th>Rule Ref</th>
-          <th>Status</th>
-          <th>Step Rationale</th>
-          <th>Exclude Count</th>
-          <th>Include Cases</th>
-          <th>Unique Accounts</th>
-          <th>Start Date</th>
-          <th>End Date</th>
-          <th>Working Days</th>
-          <th>Assigned Analyst</th>
-          <th>FRC Owner</th>
-          <th>Notes</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows}
-      </tbody>
-    </table>
-  </body>
-  </html>`;
+  rows.forEach((r) => {
+    sheetAoa.push([
+      r.stepNumber,
+      r.id,
+      r.stepTitle,
+      r.category,
+      r.ruleReference || '',
+      r.status.replace(/_/g, ' ').toUpperCase(),
+      r.rationale || '',
+      r.businessRequirements || '',
+      r.datasetLocation || '',
+      r.excludeCount,
+      r.includeCaseCount,
+      r.includeUniqueAccountCount,
+      r.startDate || '',
+      r.endDate || '',
+      r.workingDays,
+      r.assignedAnalyst || '',
+      r.frcOwner || '',
+      r.notes || '',
+    ]);
+  });
 
-  downloadFile(excelXml, fileName, 'application/vnd.ms-excel');
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetAoa);
+  worksheet['!cols'] = [
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 32 },
+    { wch: 20 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 35 },
+    { wch: 35 },
+    { wch: 35 },
+    { wch: 15 },
+    { wch: 15 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 25 },
+  ];
+  return worksheet;
+}
+
+// Helper to build a worksheet for a waterfall in Analyst format
+function buildAnalystWorksheet(
+  wfName: string,
+  rows: WaterfallRow[],
+  effectiveFieldOverrides?: Record<string, Partial<WaterfallRow>>,
+  projectDetails?: ProjectDetails
+): XLSX.WorkSheet {
+  const sheetAoa: (string | number)[][] = [
+    ['eGRC REQUIREMENTS WATERFALL - ANALYST SPECIFICATION & SCOPING'],
+    [],
+    ['COE#', projectDetails?.coeNumber || '—'],
+    ['eGRC#', projectDetails?.egrcNumber || '—'],
+    ['Issue Title', projectDetails?.issueTitle || '—'],
+    ['Issue Description', projectDetails?.issueDescription || '—'],
+    ['FRC Name', projectDetails?.frcName || '—'],
+    ['Analyst Name', projectDetails?.analystName || '—'],
+    ['Waterfall Name', wfName || '—'],
+    [],
+    [
+      'WFID#',
+      'Step Rationale',
+      'Business Requirements',
+      'Dataset Location',
+      'Exclude Count (Case Level)',
+      'Include Count (Case Level)',
+      'Unique Count (Account Level)',
+      'Optional Notes',
+      'Days Count (Working Days)',
+      'Timeline',
+      'Status',
+    ],
+  ];
+
+  rows.forEach((r) => {
+    const override = effectiveFieldOverrides?.[r.id] || {};
+    const businessReq = override.businessRequirements !== undefined ? override.businessRequirements : (r.businessRequirements || '');
+    const datasetLoc = override.datasetLocation !== undefined ? override.datasetLocation : (r.datasetLocation || `H:\\My Drive\\Waterfall\\0${r.stepNumber}_Data\\dataset_${r.id.toLowerCase()}.parquet`);
+    const excludeCnt = override.excludeCount !== undefined ? override.excludeCount : r.excludeCount;
+    const includeCaseCnt = override.includeCaseCount !== undefined ? override.includeCaseCount : r.includeCaseCount;
+    const uniqueAcctCnt = override.includeUniqueAccountCount !== undefined ? override.includeUniqueAccountCount : r.includeUniqueAccountCount;
+    const optNotes = override.notes !== undefined ? override.notes : (r.notes || '');
+    const workDays = override.workingDays !== undefined ? override.workingDays : r.workingDays;
+    const stDate = override.startDate !== undefined ? override.startDate : r.startDate;
+    const enDate = override.endDate !== undefined ? override.endDate : r.endDate;
+
+    const fullRationale = `${r.stepTitle}\n${r.rationale}${r.ruleReference ? `\nRef: ${r.ruleReference}` : ''}`;
+    const timeline = stDate && enDate ? `${stDate} to ${enDate}` : (stDate || enDate || '—');
+
+    sheetAoa.push([
+      r.id,
+      fullRationale,
+      businessReq,
+      datasetLoc,
+      excludeCnt,
+      includeCaseCnt,
+      uniqueAcctCnt,
+      optNotes,
+      workDays,
+      timeline,
+      r.status.replace(/_/g, ' ').toUpperCase(),
+    ]);
+  });
+
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetAoa);
+  worksheet['!cols'] = [
+    { wch: 14 },
+    { wch: 45 },
+    { wch: 45 },
+    { wch: 42 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 32 },
+    { wch: 16 },
+    { wch: 24 },
+    { wch: 18 },
+  ];
+  return worksheet;
+}
+
+// Export exact replica of Analyst Requirements view to true Excel (.xlsx)
+// If waterfalls are passed, exports ALL waterfalls into one single workbook with each waterfall in its own sheet!
+export function exportAnalystViewToExcel(
+  rows: WaterfallRow[],
+  effectiveFieldOverrides?: Record<string, Partial<WaterfallRow>>,
+  fileName = 'Waterfall_Analyst_Requirements.xlsx',
+  projectDetails?: ProjectDetails,
+  waterfalls?: WaterfallEntity[]
+) {
+  const workbook = XLSX.utils.book_new();
+  const existingSheetNames = new Set<string>();
+
+  if (waterfalls && waterfalls.length > 0) {
+    // Export all waterfalls in one file but split in different sheets
+    waterfalls.forEach((wf) => {
+      const sheetName = getSanitizedSheetName(wf.name || 'Waterfall', existingSheetNames);
+      // For active waterfall, if current rows were passed, use them to capture any in-memory latest updates
+      const wfRows = wf.rows && wf.rows.length > 0 ? wf.rows : (rows && rows.length > 0 ? rows : []);
+      const worksheet = buildAnalystWorksheet(wf.name, wfRows, effectiveFieldOverrides, projectDetails);
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    });
+  } else {
+    // Single active waterfall sheet
+    const initialName = projectDetails?.waterfallName || 'Initial Waterfall';
+    const sheetName = getSanitizedSheetName(initialName, existingSheetNames);
+    const worksheet = buildAnalystWorksheet(initialName, rows, effectiveFieldOverrides, projectDetails);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  }
+
+  const finalFileName = fileName.endsWith('.xlsx') ? fileName : `${fileName.replace(/\.[^.]+$/, '')}.xlsx`;
+  const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  downloadBinaryFile(new Uint8Array(excelBuffer), finalFileName);
+}
+
+// Export formatted Excel table (.xlsx)
+// If waterfalls are passed, exports ALL waterfalls into one single workbook with each waterfall in its own sheet!
+export function exportWaterfallToExcel(
+  rows: WaterfallRow[],
+  fileName = 'Waterfall_Rows.xlsx',
+  projectDetails?: ProjectDetails,
+  waterfalls?: WaterfallEntity[]
+) {
+  const workbook = XLSX.utils.book_new();
+  const existingSheetNames = new Set<string>();
+
+  if (waterfalls && waterfalls.length > 0) {
+    // Export all waterfalls in one file but split in different sheets
+    waterfalls.forEach((wf) => {
+      const sheetName = getSanitizedSheetName(wf.name || 'Waterfall', existingSheetNames);
+      const wfRows = wf.rows && wf.rows.length > 0 ? wf.rows : (rows && rows.length > 0 ? rows : []);
+      const worksheet = buildWaterfallWorksheet(wf.name, wfRows, projectDetails);
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    });
+  } else {
+    // Single active waterfall sheet
+    const initialName = projectDetails?.waterfallName || 'Initial Waterfall';
+    const sheetName = getSanitizedSheetName(initialName, existingSheetNames);
+    const worksheet = buildWaterfallWorksheet(initialName, rows, projectDetails);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  }
+
+  const finalFileName = fileName.endsWith('.xlsx') ? fileName : `${fileName.replace(/\.[^.]+$/, '')}.xlsx`;
+  const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  downloadBinaryFile(new Uint8Array(excelBuffer), finalFileName);
 }
 
 // Export Audit Logs to CSV
@@ -154,68 +350,25 @@ export function exportAuditLogsToCsv(logs: AuditLogEntry[], fileName = 'Audit_Ac
   downloadFile(csvContent, fileName, 'text/csv;charset=utf-8;');
 }
 
-// Export Audit Logs to Excel
-export function exportAuditLogsToExcel(logs: AuditLogEntry[], fileName = 'Audit_Activity_Log.xls') {
-  const tableRows = logs
-    .map(
-      (l) => `
-    <tr>
-      <td style="font-family:monospace;">${l.id}</td>
-      <td>${formatDateTimeDisplay(l.timestamp)}</td>
-      <td style="font-weight:bold;">${escapeHtml(l.user)}</td>
-      <td style="background-color:${l.role === 'FRC Owner' ? '#f0fdf4' : '#eff6ff'}; font-weight:bold;">${l.role}</td>
-      <td style="font-weight:bold;">${escapeHtml(l.action)}</td>
-      <td style="font-family:monospace; text-align:center;">${l.rowId || '—'}</td>
-      <td>${escapeHtml(l.details)}</td>
-    </tr>`
-    )
-    .join('');
+// Export Audit Logs to Excel (.xlsx)
+export function exportAuditLogsToExcel(logs: AuditLogEntry[], fileName = 'Audit_Activity_Log.xlsx') {
+  const data = logs.map((l) => ({
+    'Log ID': l.id,
+    'Timestamp': formatDateTimeDisplay(l.timestamp),
+    'User': l.user,
+    'Role': l.role,
+    'Action': l.action,
+    'Target Row': l.rowId || '—',
+    'Details': l.details,
+  }));
 
-  const excelXml = `
-  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <!--[if gte mso 9]>
-    <xml>
-      <x:ExcelWorkbook>
-        <x:ExcelWorksheets>
-          <x:ExcelWorksheet>
-            <x:Name>Activity Audit Log</x:Name>
-            <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-          </x:ExcelWorksheet>
-        </x:ExcelWorksheets>
-      </x:ExcelWorkbook>
-    </xml>
-    <![endif]-->
-    <style>
-      body { font-family: Calibri, Arial, sans-serif; }
-      th { background-color: #0f172a; color: #ffffff; padding: 8px; border: 1px solid #334155; }
-      td { padding: 6px; border: 1px solid #e2e8f0; font-size: 11pt; }
-    </style>
-  </head>
-  <body>
-    <h2>Consolidated Activity Audit Log - eGRC Requirements</h2>
-    <p>Export Date: ${new Date().toLocaleString()} | Target Drive: H:\\My Drive\\Waterfall</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Log ID</th>
-          <th>Timestamp</th>
-          <th>User</th>
-          <th>Role</th>
-          <th>Action</th>
-          <th>Target Row</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows}
-      </tbody>
-    </table>
-  </body>
-  </html>`;
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Audit Logs');
 
-  downloadFile(excelXml, fileName, 'application/vnd.ms-excel');
+  const finalFileName = fileName.endsWith('.xlsx') ? fileName : `${fileName.replace(/\.[^.]+$/, '')}.xlsx`;
+  const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  downloadBinaryFile(new Uint8Array(excelBuffer), finalFileName);
 }
 
 function escapeHtml(text: string): string {

@@ -12,7 +12,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { AuditLogEntry } from '../types';
-import { exportAuditLogsToExcel, exportAuditLogsToCsv } from '../utils/exportUtils';
+import { exportAuditLogsToExcel } from '../utils/exportUtils';
 import { formatDateTimeDisplay } from '../utils/workingDays';
 
 interface AuditLogDrawerProps {
@@ -140,15 +140,6 @@ export const AuditLogDrawer: React.FC<AuditLogDrawerProps> = ({ isOpen, onClose,
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
                 Export to Excel
-              </button>
-              <button
-                type="button"
-                onClick={() => exportAuditLogsToCsv(filteredLogs)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-lg transition-colors text-xs"
-                title="Export audit log to CSV format"
-              >
-                <Download className="w-3.5 h-3.5 text-stone-200" />
-                Export to CSV
               </button>
             </div>
           </div>

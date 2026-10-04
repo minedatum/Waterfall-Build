@@ -72,9 +72,6 @@ export const ProjectDetailsCard: React.FC<ProjectDetailsCardProps> = ({
         <div className="flex items-center justify-between pb-3 border-b border-stone-200">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-stone-900 tracking-tight">Issue Details</h3>
-            <span className="text-[10px] text-emerald-700 font-semibold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded-full">
-              Live Governance
-            </span>
           </div>
           <button
             id="btn-edit-issue-details"

@@ -35,13 +35,19 @@ export function getWaterfallStatusInfo(status: WaterfallRowStatus | string): Sta
         dotColor: 'bg-amber-200',
       };
     case 'in_analysis':
-    case 'ready_for_review':
-    case 'submitted':
       return {
         label: 'Analytics in Progress',
         description: 'Analytics in Progress',
         badgeClass: 'bg-blue-100 text-blue-900 border-blue-300',
         dotColor: 'bg-blue-600',
+      };
+    case 'ready_for_review':
+    case 'submitted':
+      return {
+        label: 'Analytics Step Completed',
+        description: 'Analytics Step Completed',
+        badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+        dotColor: 'bg-emerald-600',
       };
     case 'step_finalized':
     case 'signed_off': // Aligned with FRC: retired "certified", mapped to Requirement Finalized

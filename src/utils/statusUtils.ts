@@ -14,7 +14,7 @@ export interface StatusConfig {
  * - 'step_finalized' -> "Requirement Finalized"
  * - 'in_modification' -> "In Modification"
  * - 'in_analysis' -> "Analytics in Progress"
- * - 'ready_for_review' -> "Submitted for Review"
+ * - 'ready_for_review' -> "Analytics in Progress"
  *
  * Certified status is retired and mapped to "Requirement Finalized".
  */
@@ -35,19 +35,13 @@ export function getWaterfallStatusInfo(status: WaterfallRowStatus | string): Sta
         dotColor: 'bg-amber-200',
       };
     case 'in_analysis':
+    case 'ready_for_review':
+    case 'submitted':
       return {
         label: 'Analytics in Progress',
         description: 'Analytics in Progress',
         badgeClass: 'bg-blue-100 text-blue-900 border-blue-300',
         dotColor: 'bg-blue-600',
-      };
-    case 'ready_for_review':
-    case 'submitted':
-      return {
-        label: 'Submitted for Review',
-        description: 'Submitted by Analyst (Ready for Review)',
-        badgeClass: 'bg-purple-100 text-purple-900 border-purple-300',
-        dotColor: 'bg-purple-600',
       };
     case 'step_finalized':
     case 'signed_off': // Aligned with FRC: retired "certified", mapped to Requirement Finalized

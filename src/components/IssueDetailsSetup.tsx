@@ -95,30 +95,11 @@ export const IssueDetailsSetup: React.FC<IssueDetailsSetupProps> = ({
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6">
       <div className="bg-white rounded-3xl border border-stone-200/90 shadow-xl overflow-hidden animate-in fade-in duration-200">
-        {/* Banner Header */}
-        <div className="bg-stone-900 text-white p-6 sm:p-8 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 relative z-10">
-            <div className="space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-                Live Demo Setup
-              </div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                Enter Issue Details
-              </h2>
-              <p className="text-xs sm:text-sm text-stone-300 max-w-2xl leading-relaxed">
-                Start your live walkthrough with a clean slate. Enter the issue title, description, and governance identifiers below. Once submitted, all details will be reflected at the top of the workspace and you will be directed to the FRC / Analyst view.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Demo Helper Actions Bar */}
-        <div className="bg-stone-50 border-b border-stone-200 px-6 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <span className="text-stone-500 font-medium flex items-center gap-1.5">
+        {/* Actions Bar */}
+        <div className="bg-stone-50 border-b border-stone-200 px-6 sm:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="text-stone-700 font-medium flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            All fields start blank. Type in your demo values or use quick autofill.
+            Fill out the issue details.
           </span>
           <div className="flex items-center gap-2">
             <button

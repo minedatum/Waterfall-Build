@@ -19,7 +19,6 @@ import {
   Filter,
   Users,
   ShieldCheck,
-  ArrowDownRight,
   Info,
 } from 'lucide-react';
 import { WaterfallRow } from '../types';
@@ -68,13 +67,7 @@ export const TimelineTrendline: React.FC<TimelineTrendlineProps> = ({
   const {
     milestones,
     firstMilestone,
-    latestMilestone,
     startingBaseline,
-    currentPopulation,
-    totalDecrease,
-    decreasePercent,
-    totalSpanDays,
-    averageDaysPerStep,
     minYValue,
     maxYValue,
   } = useMemo(() => {
@@ -125,10 +118,14 @@ export const TimelineTrendline: React.FC<TimelineTrendlineProps> = ({
       } else {
         // Analytics is finalized if status is ready_for_review, signed_off, or analyticsCompletedAt/analyticsFirstFinalizedAt
         isFinalized =
-          row.status === 'ready_for_review' ||
+          (row.status === 'ready_for_review' ||
           row.status === 'signed_off' ||
           Boolean(row.analyticsFirstFinalizedAt) ||
-          Boolean(row.analyticsCompletedAt);
+          Boolean(row.analyticsCompletedAt)) &&
+          row.status !== 'in_analysis' &&
+          row.status !== 'draft' &&
+          row.status !== 'in_modification' &&
+          row.status !== 'step_finalized';
 
         if (isFinalized) {
           finalDateStr =
@@ -357,88 +354,6 @@ export const TimelineTrendline: React.FC<TimelineTrendlineProps> = ({
           >
             Cumulative Excluded
           </button>
-        </div>
-      </div>
-
-      {/* KPI Stats Ribbon: Origin, Starting Baseline, Remaining Scope, and Span */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
-        {/* KPI 1: Origin Point */}
-        <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
-          <span className="text-[11px] text-stone-500 font-medium block">
-            {isRequirements ? 'First Requirement Finalized' : 'First Analytics Finalized'}
-          </span>
-          <div className="flex items-baseline gap-1.5 mt-0.5">
-            <span className="text-base font-bold text-stone-900">
-              {firstMilestone ? firstMilestone.displayDate : 'Awaiting'}
-            </span>
-            {firstMilestone && (
-              <span className="font-mono text-[11px] text-indigo-700 font-bold">
-                ({firstMilestone.stepId})
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] text-stone-400 block mt-0.5">
-            {firstMilestone ? `${firstMilestone.displayTime} • Origin (Day 0)` : 'Timeline start point'}
-          </span>
-        </div>
-
-        {/* KPI 2: Baseline Population */}
-        <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
-          <span className="text-[11px] text-stone-500 font-medium block">
-            Baseline Starting Population
-          </span>
-          <div className="flex items-baseline gap-1.5 mt-0.5">
-            <span className="text-base font-bold text-stone-900">
-              {startingBaseline.toLocaleString()}
-            </span>
-            <span className="text-xs text-stone-500">cases</span>
-          </div>
-          <span className="text-[10px] text-stone-400 block mt-0.5">
-            Initial portfolio universe at Step 1
-          </span>
-        </div>
-
-        {/* KPI 3: Current Remaining Population & Total Drop */}
-        <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200/80">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-emerald-800 font-semibold block">
-              In-Scope Population Remaining
-            </span>
-            <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" />
-          </div>
-          <div className="flex items-baseline gap-1.5 mt-0.5">
-            <span className="text-base font-bold text-emerald-950">
-              {currentPopulation.toLocaleString()}
-            </span>
-            <span className="text-xs font-semibold text-emerald-700">
-              (-{decreasePercent.toFixed(1)}%)
-            </span>
-          </div>
-          <span className="text-[10px] text-emerald-700 font-medium block mt-0.5">
-            -{totalDecrease.toLocaleString()} excluded from baseline
-          </span>
-        </div>
-
-        {/* KPI 4: Timeline Span */}
-        <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
-          <span className="text-[11px] text-stone-500 font-medium block">
-            Timeline Journey Duration
-          </span>
-          <div className="flex items-baseline gap-1.5 mt-0.5">
-            <span className="text-base font-bold text-stone-900">
-              {milestones.length > 1
-                ? `${totalSpanDays} days`
-                : milestones.length === 1
-                ? 'Day 0'
-                : '0 days'}
-            </span>
-            {latestMilestone && (
-              <span className="text-xs text-stone-500">({milestones.length} steps)</span>
-            )}
-          </div>
-          <span className="text-[10px] text-stone-400 block mt-0.5">
-            {milestones.length > 1 ? `Avg ${averageDaysPerStep} days / step` : 'Active milestone'}
-          </span>
         </div>
       </div>
 

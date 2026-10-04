@@ -18,19 +18,22 @@ export interface StatusConfig {
  *
  * Certified status is retired and mapped to "Requirement Finalized".
  */
-export function getWaterfallStatusInfo(status: WaterfallRowStatus | string): StatusConfig {
+export function getWaterfallStatusInfo(
+  status: WaterfallRowStatus | string,
+  role?: 'frc' | 'analyst'
+): StatusConfig {
   switch (status) {
     case 'draft':
       return {
-        label: 'Draft',
-        description: 'Draft Formulation',
+        label: 'Requirement in Draft',
+        description: 'Requirement in Draft',
         badgeClass: 'bg-stone-100 text-stone-700 border-stone-300',
         dotColor: 'bg-stone-400',
       };
     case 'in_modification':
       return {
-        label: 'In Modification',
-        description: 'In Modification by FRC',
+        label: role === 'frc' ? 'In Modification' : 'New Requirement in Progress',
+        description: role === 'frc' ? 'In Modification by FRC' : 'New Requirement in Progress',
         badgeClass: 'bg-amber-500 text-white border-amber-600',
         dotColor: 'bg-amber-200',
       };

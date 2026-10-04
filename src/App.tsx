@@ -596,6 +596,7 @@ export default function App() {
       datasetLocation?: string;
       notes?: string;
       rerunCount?: number;
+      analyticsCompletedAt?: string;
       analyticsFirstFinalizedAt?: string;
       analyticsLatestFinalizedAt?: string;
     },
@@ -625,12 +626,18 @@ export default function App() {
           workingDays: updates.workingDays,
         };
 
-        return {
+        const updatedRow: WaterfallRow = {
           ...row,
           ...updates,
           lastUpdated: new Date().toISOString(),
           versions: [...row.versions, newVersion],
         };
+
+        if ('analyticsCompletedAt' in updates && !updates.analyticsCompletedAt) {
+          delete updatedRow.analyticsCompletedAt;
+        }
+
+        return updatedRow;
       })
     );
 
@@ -703,7 +710,6 @@ export default function App() {
         r.id === rowId
           ? {
               ...r,
-              analyticsCompletedAt: timestamp,
               emailTriggeredAt: timestamp,
               rerunCount: newRerunCount,
               lastEmailRecipients: emailDetails.recipients,
@@ -738,7 +744,9 @@ export default function App() {
     setWaterfallRows((prev) =>
       prev.map((r) => ({
         ...r,
-        analyticsCompletedAt: timestamp,
+        ...(r.status === 'ready_for_review' || r.status === 'signed_off'
+          ? { analyticsCompletedAt: timestamp }
+          : {}),
         emailTriggeredAt: timestamp,
         rerunCount: (r.rerunCount || 0) + 1,
         lastEmailRecipients: emailPayload.recipients,
